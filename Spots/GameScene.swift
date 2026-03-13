@@ -173,13 +173,15 @@ class GameScene: SKScene {
         ]))
     }
 
-    // Sets up a 4/4 kick-snare pattern:
-    //   Bass dots  → beats 1 & 3  (every 2 beats)
-    //   Clap dots  → beats 2 & 4  (every 2 beats, offset by 1 beat)
+    // Sets up a full 4/4 drum pattern — all sounds fire on the beat grid,
+    // independent of the player's tap timing, so there is always a real groove:
     //
-    // When the player taps bass dots in time they hear the kick on beats 1 & 3.
-    // The snare fires automatically on clap-dot spawn (beats 2 & 4) as the
-    // beat reference. Together they form a real drum groove.
+    //   Bass dots  → beats 1 & 3  — kick fires on spawn
+    //   Clap dots  → beats 2 & 4  — snare fires on spawn
+    //   Hi-hat     → every 8th note (beat / 2) — gives the rhythmic pulse
+    //
+    // The player's job is to tap each dot before it shrinks to zero.
+    // Tapping in time feels satisfying because the audio is already grooving.
     func startRhythm() {
         let bassLoop = SKAction.repeatForever(SKAction.sequence([
             SKAction.run(spawnBassDot),
@@ -196,11 +198,22 @@ class GameScene: SKScene {
             SKAction.wait(forDuration: beat),
             clapLoop
         ]), withKey: "clapLoop")
+
+        // Hi-hat on every 8th note — this subdivision is what makes it groove
+        let hhLoop = SKAction.repeatForever(SKAction.sequence([
+            SKAction.run(playHiHatSound),
+            SKAction.wait(forDuration: beat / 2)
+        ]))
+        run(hhLoop, withKey: "hiHatLoop")
     }
 
     // Bass (kick) dot — appears on beats 1 & 3.
-    // Player tap → kick sound plays + score.  Miss → game over.
+    // Kick fires on spawn so beat 1 & 3 are always locked to tempo.
+    // Player tap → score + visual removal.  Miss → game over.
     func spawnBassDot() {
+        // Kick fires on the beat — guaranteed, regardless of tap timing
+        playKickSound()
+
         let dot = SKSpriteNode(imageNamed: "dot\(Int.random(in: 1...4))")
         dot.zPosition = 2
         dot.setScale(0.25)
@@ -243,8 +256,18 @@ class GameScene: SKScene {
         return CGPoint(x: x, y: y)
     }
 
+    // Hi-hat sound on every 8th note — the subdivision that drives the groove
+    func playHiHatSound() {
+        switch userAudioDefault {
+        case 1:  run(soundHiHatDD8_1)
+        case 2:  run(soundHiHat808_1)   // GB kit has no hi-hat; 808 hat works fine
+        case 3:  run(soundHiHat808_1)
+        default: run(soundHiHat808_1)
+        }
+    }
+
     // Kick sound for the active drum kit.
-    // Sound cycles every 8 bass taps to keep the progression musical.
+    // Sound cycles every 8 bass spawns to keep the progression musical.
     func playKickSound() {
         switch userAudioDefault {
         case 1:
@@ -324,9 +347,7 @@ class GameScene: SKScene {
                     SKAction.removeFromParent()
                 ]))
 
-                // Kick on tap — the player IS the kick drum
-                playKickSound()
-
+                // Kick already fired on spawn — tap just scores and removes the dot
                 scoreNumber += 1
                 gameScore += 1
                 scoreLabel.text = "Score \(gameScore)"
