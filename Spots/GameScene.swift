@@ -501,7 +501,7 @@ class GameScene: SKScene {
 
 
         
-        for touch: AnyObject in touches {
+        for touch in touches {
             
             let positionOfTouch = touch.location(in: self)
             let tappedNode = atPoint(positionOfTouch)

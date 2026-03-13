@@ -75,7 +75,7 @@ class MainMenuScene: SKScene{
         }
         
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-            for touch: AnyObject in touches{
+            for touch in touches {
                 
             let pointOfTouch = touch.location(in: self)
             
