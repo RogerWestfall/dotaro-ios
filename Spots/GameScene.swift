@@ -19,10 +19,8 @@ var scoreNumber = 0
 var scoreNumber2 = 0
 var gameScore = 0
 
-// BPM — all game timing is derived from this value.
-// Dots appear on beats 1 & 3 (bass) and beats 2 & 4 (clap),
-// so tapping in time creates an actual drum groove.
-let bpm: Double = 100.0
+// Starting BPM — increases by 5% every 16 bars (see GameScene.increaseTempo)
+let startingBPM: Double = 86.0
 
 // 808 Audio
 let soundKick808_1 = SKAction.playSoundFileNamed("kick4.wav", waitForCompletion: false)
@@ -99,21 +97,19 @@ class GameScene: SKScene {
     let scoreLabel = SKLabelNode(fontNamed: "Pusab")
     var gameArea = CGRect()
 
-    // One beat in seconds — everything is derived from this
-    var beat: Double { 60.0 / bpm }
+    // Live BPM — starts at 86, increases 5% every 16 bars.
+    // All timing (beat, dotLifetime, loop waits) derives from this.
+    var currentBPM: Double = startingBPM
 
-    // Dot lifetime decreases as score rises, making the game progressively harder
-    var dotLifetime: Double {
-        switch gameScore {
-        case 0..<50:    return beat * 2.0   // 1.2 s at 100 BPM
-        case 50..<150:  return beat * 1.75  // 1.05 s
-        case 150..<300: return beat * 1.5   // 0.9 s
-        default:        return beat * 1.25  // 0.75 s — very tight
-        }
-    }
+    // One beat in seconds at the current tempo
+    var beat: Double { 60.0 / currentBPM }
 
-    // Tracks how many clap dots have spawned (drives sound cycling & stab accents,
-    // independent of the player's tap count so the beat never drifts)
+    // Each dot must be tapped within 2 beats.
+    // As BPM rises the window shrinks in real time, making the game harder.
+    var dotLifetime: Double { beat * 2.0 }
+
+    // Tracks how many clap dots have spawned (drives sound cycling, stab accents,
+    // and tempo increases — independent of player taps so the beat never drifts).
     var clapSpawnCount = 0
 
     override init(size: CGSize) {
@@ -133,6 +129,7 @@ class GameScene: SKScene {
         scoreNumber2 = 0
         gameScore = 0
         clapSpawnCount = 0
+        currentBPM = startingBPM
 
         backgroundColor = SKColor.white
 
@@ -169,38 +166,66 @@ class GameScene: SKScene {
         playKickSound()
         run(SKAction.sequence([
             SKAction.wait(forDuration: beat),
-            SKAction.run(startRhythm)
+            SKAction.run { self.startRhythm() }
         ]))
     }
 
-    // Sets up a 4/4 kick-snare pattern:
-    //   Bass dots  → beats 1 & 3  (every 2 beats)
-    //   Clap dots  → beats 2 & 4  (every 2 beats, offset by 1 beat)
+    // Sets up (or re-syncs) the full 4/4 drum pattern at the current BPM:
     //
-    // When the player taps bass dots in time they hear the kick on beats 1 & 3.
-    // The snare fires automatically on clap-dot spawn (beats 2 & 4) as the
-    // beat reference. Together they form a real drum groove.
-    func startRhythm() {
+    //   Bass dots  → beats 1 & 3  — kick fires on spawn
+    //   Clap dots  → beats 2 & 4  — snare fires on spawn
+    //   Hi-hat     → every 8th note (beat / 2) — gives the rhythmic pulse
+    //
+    // `bassDelay` lets the caller re-sync loops mid-song after a tempo change.
+    // When called from beat 2 (clap spawn), pass `beat` so bass re-enters on
+    // beat 3 and clap re-enters on beat 4, keeping the pattern properly aligned.
+    //
+    // run(_:withKey:) automatically replaces any existing action with the same key,
+    // so there is no need to remove old loops before calling this.
+    func startRhythm(bassDelay: Double = 0) {
         let bassLoop = SKAction.repeatForever(SKAction.sequence([
             SKAction.run(spawnBassDot),
             SKAction.wait(forDuration: beat * 2)
         ]))
-        run(bassLoop, withKey: "bassLoop")
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: bassDelay),
+            bassLoop
+        ]), withKey: "bassLoop")
 
         let clapLoop = SKAction.repeatForever(SKAction.sequence([
             SKAction.run(spawnClapDot),
             SKAction.wait(forDuration: beat * 2)
         ]))
-        // Offset by 1 beat so clap lands on beats 2 & 4
+        // Clap is always 1 beat after bass (beats 2 & 4)
         run(SKAction.sequence([
-            SKAction.wait(forDuration: beat),
+            SKAction.wait(forDuration: bassDelay + beat),
             clapLoop
         ]), withKey: "clapLoop")
+
+        // Hi-hat on every 8th note — restarts immediately at the new tempo
+        let hhLoop = SKAction.repeatForever(SKAction.sequence([
+            SKAction.run(playHiHatSound),
+            SKAction.wait(forDuration: beat / 2)
+        ]))
+        run(hhLoop, withKey: "hiHatLoop")
+    }
+
+    // Called every 16 bars (32 clap spawns). Bumps BPM by 5% and restarts
+    // all loops at the new tempo, re-synced to the current beat position.
+    // We are always on beat 2 when this fires (clap spawn), so the bass
+    // re-enters 1 beat later on beat 3 to stay in the correct 4/4 pattern.
+    func increaseTempo() {
+        currentBPM *= 1.05
+        startRhythm(bassDelay: beat)
     }
 
     // Bass (kick) dot — appears on beats 1 & 3.
-    // Player tap → kick sound plays + score.  Miss → game over.
+    // Kick fires on spawn so beat 1 & 3 are always locked to tempo.
+    // Player tap → score + visual removal.  Miss → game over.
     func spawnBassDot() {
+        // Kick fires on the beat — guaranteed, regardless of tap timing
+        playKickSound()
+
         let dot = SKSpriteNode(imageNamed: "dot\(Int.random(in: 1...4))")
         dot.zPosition = 2
         dot.setScale(0.25)
@@ -220,6 +245,12 @@ class GameScene: SKScene {
     // Miss → game over.
     func spawnClapDot() {
         clapSpawnCount += 1
+
+        // Every 16 bars (32 clap spawns = 64 beats) increase BPM by 5%.
+        // This fires on beat 2, so increaseTempo() re-syncs bass to beat 3.
+        if clapSpawnCount % 32 == 0 {
+            increaseTempo()
+        }
 
         let clapDot = SKSpriteNode(imageNamed: "dot\(Int.random(in: 5...8))")
         clapDot.zPosition = 3
@@ -243,8 +274,18 @@ class GameScene: SKScene {
         return CGPoint(x: x, y: y)
     }
 
+    // Hi-hat sound on every 8th note — the subdivision that drives the groove
+    func playHiHatSound() {
+        switch userAudioDefault {
+        case 1:  run(soundHiHatDD8_1)
+        case 2:  run(soundHiHat808_1)   // GB kit has no hi-hat; 808 hat works fine
+        case 3:  run(soundHiHat808_1)
+        default: run(soundHiHat808_1)
+        }
+    }
+
     // Kick sound for the active drum kit.
-    // Sound cycles every 8 bass taps to keep the progression musical.
+    // Sound cycles every 8 bass spawns to keep the progression musical.
     func playKickSound() {
         switch userAudioDefault {
         case 1:
@@ -324,9 +365,7 @@ class GameScene: SKScene {
                     SKAction.removeFromParent()
                 ]))
 
-                // Kick on tap — the player IS the kick drum
-                playKickSound()
-
+                // Kick already fired on spawn — tap just scores and removes the dot
                 scoreNumber += 1
                 gameScore += 1
                 scoreLabel.text = "Score \(gameScore)"
