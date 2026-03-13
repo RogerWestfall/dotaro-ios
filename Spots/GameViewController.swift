@@ -17,7 +17,7 @@ class GameViewController: UIViewController {
    
     override func viewDidLoad() {
         super.viewDidLoad()
-        try! AVAudioSession.sharedInstance().setCategory(AVAudioSessionCategoryAmbient)
+        try! AVAudioSession.sharedInstance().setCategory(.ambient)
         
         let scene = MainMenuScene(size: view.bounds.size)
         let skView = view as! SKView
