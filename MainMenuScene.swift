@@ -63,6 +63,20 @@ class MainMenuScene: SKScene{
             settingsButton.position = CGPoint(x: self.size.width*0.9, y: self.size.height*0.05)
             settingsButton.name = "SettingsButton"
             self.addChild(settingsButton)
+
+            // Version label — reads CFBundleShortVersionString and CFBundleVersion
+            // from the bundle at runtime so it always matches the project settings.
+            let info = Bundle.main.infoDictionary
+            let shortVersion = info?["CFBundleShortVersionString"] as? String ?? "0"
+            let buildNumber  = info?["CFBundleVersion"]            as? String ?? "0"
+            let versionLabel = SKLabelNode(fontNamed: "Pusab")
+            versionLabel.text = "v\(shortVersion) (\(buildNumber))"
+            versionLabel.fontSize = 10
+            versionLabel.fontColor = SKColor.lightGray
+            versionLabel.horizontalAlignmentMode = .left
+            versionLabel.position = CGPoint(x: self.size.width*0.05, y: self.size.height*0.02)
+            versionLabel.zPosition = 1
+            self.addChild(versionLabel)
    
 
             let fadeInAction = SKAction.fadeIn(withDuration: 5.0)
