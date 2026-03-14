@@ -151,10 +151,10 @@ class GameScene: SKScene {
     // One beat in seconds at the current tempo.
     var beat: Double { 60.0 / currentBPM }
 
-    // One 8th note — the quantization resolution for dot spawning.
-    // At 86 BPM an 8th note is ~349 ms, giving a perceptible but musical snap
-    // that locks every spawn to the nearest upbeat or downbeat.
-    var eighthNote: Double { beat / 2 }
+    // One 16th note — the quantization resolution for dot spawning.
+    // At 86 BPM a 16th note is ~174 ms — tight enough to feel snappy,
+    // loose enough to be forgiving.
+    var sixteenthNote: Double { beat / 4 }
 
     // How long a dot stays on screen before triggering game over (one full bar).
     // Shortens naturally as BPM rises, so difficulty increases gradually.
@@ -163,16 +163,18 @@ class GameScene: SKScene {
     // Total taps this game — drives tempo progression and fills.
     var tapCount = 0
 
-    // Current position in the 8-step bar (0–7).
-    // Advances by however many 8th-note steps elapsed since the last spawn.
+    // Current position in the 16-step bar (0–15).
+    // Advances by however many 16th-note steps elapsed since the last spawn.
     // The sound assigned to each new dot is determined by this value:
-    //   0, 4 → kick  (beats 1 and 3)
-    //   2, 6 → snare (beats 2 and 4)
-    //   1, 3, 5, 7 → open hi-hat ("and" of each beat)
+    //   0, 8     → kick (beats 1 and 3)
+    //   4, 12    → snare (beats 2 and 4)
+    //   6        → syncopated kick ("and of 2")
+    //   10, 14   → open hi-hat ("and of 3" and "and of 4")
+    //   all others → closed hi-hat (16th-note fill)
     var gridStep: Int = 0
 
     // Wall-clock time at which the last dot was spawned.
-    // Used to compute how many 64th-note steps have elapsed since then.
+    // Used to compute how many 16th-note steps have elapsed since then.
     var lastSpawnTime: TimeInterval = 0
 
     override init(size: CGSize) {
@@ -238,9 +240,9 @@ class GameScene: SKScene {
         let elapsed = now - lastSpawnTime
 
         // Floor + 1 ensures we always target a future boundary, never the past.
-        let stepsToNext = Int(elapsed / eighthNote) + 1
-        let delay = Double(stepsToNext) * eighthNote - elapsed
-        let nextStep = (gridStep + stepsToNext) % 8
+        let stepsToNext = Int(elapsed / sixteenthNote) + 1
+        let delay = Double(stepsToNext) * sixteenthNote - elapsed
+        let nextStep = (gridStep + stepsToNext) % 16
 
         run(SKAction.sequence([
             SKAction.wait(forDuration: max(0.001, delay)),
@@ -283,22 +285,29 @@ class GameScene: SKScene {
         return CGPoint(x: x, y: y)
     }
 
-    // Maps an 8th-note grid step (0–7) to a drum sound.
+    // Maps a 16th-note grid step (0–15) to a drum sound.
     //
-    //  Bar layout (4/4, 8 steps — one 8th note each):
-    //   Step 0 → beat 1        → kick
-    //   Step 2 → beat 2        → snare
-    //   Step 4 → beat 3        → kick
-    //   Step 6 → beat 4        → snare
-    //   Steps 1, 3, 5, 7 → "and" of each beat → open hi-hat
+    //  Bar layout (4/4, 16 steps):
+    //   0        → beat 1           → kick
+    //   4        → beat 2           → snare
+    //   6        → "and of 2"       → syncopated kick
+    //   8        → beat 3           → kick
+    //   10       → "and of 3"       → open hi-hat
+    //   12       → beat 4           → snare
+    //   14       → "and of 4"       → open hi-hat (groove pocket)
+    //   1,2,3,5,7,9,11,13,15        → closed hi-hat (16th-note fill)
     func playGridSound(forStep step: Int) {
-        switch step % 8 {
-        case 0, 4:
+        switch step % 16 {
+        case 0, 8:
             playKickSound()
-        case 2, 6:
+        case 4, 12:
             playClapSound()
-        default:
+        case 6:
+            playKickSound()     // syncopated kick — "and of 2"
+        case 10, 14:
             playOpenHat()
+        default:
+            playClosedHat()
         }
     }
 
@@ -308,7 +317,15 @@ class GameScene: SKScene {
         currentBPM *= 1.05
     }
 
-    // Open hi-hat — offbeat accent ("and" of each beat)
+    // Closed hi-hat — 16th-note fill positions
+    func playClosedHat() {
+        switch userAudioDefault {
+        case 1:  run(soundHiHatDD8_1)
+        default: run(soundHiHat808_1)
+        }
+    }
+
+    // Open hi-hat — groove pocket and offbeat accents
     func playOpenHat() {
         switch userAudioDefault {
         case 1:  run(soundHiHatDD8_2)
