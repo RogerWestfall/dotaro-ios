@@ -163,7 +163,10 @@ class GameScene: SKScene {
     // Total taps this game — drives tempo progression and fills.
     var tapCount = 0
 
-    // Current position in the 64-step bar (0–63).
+    // Sequential position in the 8-step bar pattern (0–7).
+    // Advances by exactly 1 per spawn so every dot always produces a sound.
+    // The 64th-note quantization still controls WHEN the dot appears;
+    // this controls WHAT it sounds like.
     var gridStep: Int = 0
 
     // How many complete bars have elapsed. Used to trigger the horn accent
@@ -238,9 +241,12 @@ class GameScene: SKScene {
         let elapsed = now - lastSpawnTime
 
         // Floor + 1 ensures we always target a future boundary, never the past.
+        // Timing: snap to next 64th-note boundary
         let stepsToNext = Int(elapsed / sixtyFourthNote) + 1
         let delay = Double(stepsToNext) * sixtyFourthNote - elapsed
-        let nextStep = (gridStep + stepsToNext) % 64
+
+        // Sound: always advance exactly 1 step through the 8-step pattern
+        let nextStep = (gridStep + 1) % 8
 
         run(SKAction.sequence([
             SKAction.wait(forDuration: max(0.001, delay)),
@@ -284,36 +290,29 @@ class GameScene: SKScene {
         return CGPoint(x: x, y: y)
     }
 
-    // Maps a 64th-note grid step (0–63) to a drum sound.
+    // Maps the 8-step sequential pattern to drum sounds.
+    // Every step has a sound — no silent positions. Kick-heavy with
+    // snare on steps 2 and 6 (beats 2 and 4), one open hat per bar.
     //
-    //  Bar layout (4/4, 64 steps) — kick/bass heavy, minimal hi-hat:
-    //   0, 8, 32, 40  → kick (beats 1, 3 + their 8th-note "ands")
-    //   12, 28, 44    → syncopated kick
-    //   16, 48        → snare (reinforces auto snare loop)
-    //   24, 56        → open hi-hat (groove pocket — only 2 per bar)
-    //   4, 36         → closed hi-hat (sparse — only 2 per bar)
-    //   beat 1 of every 16th bar → horn accent
-    //   all others    → silence (fine subdivisions stay clean)
+    //  Step 0 → kick    (beat 1)
+    //  Step 1 → kick    (syncopated)
+    //  Step 2 → snare   (beat 2)
+    //  Step 3 → kick    (beat 3)
+    //  Step 4 → kick    (syncopated)
+    //  Step 5 → kick    (beat 3 offbeat)
+    //  Step 6 → snare   (beat 4)
+    //  Step 7 → open hat (bar turnaround)
+    //  Step 0 of every 16th bar → horn accent instead of kick
     func playGridSound(forStep step: Int) {
-        // Horn accent at the downbeat of every 16th bar
-        if step % 64 == 0 && barCount > 0 && barCount % 16 == 0 {
+        if step == 0 && barCount > 0 && barCount % 16 == 0 {
             playHorn()
             return
         }
 
-        switch step % 64 {
-        case 0, 8, 32, 40:  // beats 1 & 3 plus their 8th-note offbeats → kick
-            playKickSound()
-        case 12, 28, 44:    // syncopated kicks
-            playKickSound()
-        case 16, 48:        // beats 2 & 4 — reinforce the snare loop
-            playClapSound()
-        case 24, 56:        // "and" of 2 & 4 → open hi-hat
-            playOpenHat()
-        case 4, 36:         // sparse closed hi-hat — just two per bar
-            playClosedHat()
-        default:
-            break           // silence on 32nd/64th subdivisions
+        switch step {
+        case 2, 6: playClapSound()
+        case 7:    playOpenHat()
+        default:   playKickSound()
         }
     }
 
