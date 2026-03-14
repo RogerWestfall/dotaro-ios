@@ -164,14 +164,11 @@ class GameScene: SKScene {
     var tapCount = 0
 
     // Current position in the 64-step bar (0–63).
-    // Advances by however many 64th-note steps elapsed since the last spawn.
-    // The sound assigned to each new dot is determined by this value:
-    //   0, 32       → kick (beats 1 and 3 — beat 1 is always a kick)
-    //   16, 48      → snare (beats 2 and 4)
-    //   12, 28      → syncopated kick ("a" of beats 1 and 2)
-    //   24, 56      → open hi-hat ("and" of beats 2 and 4)
-    //   all others  → closed hi-hat
     var gridStep: Int = 0
+
+    // How many complete bars have elapsed. Used to trigger the horn accent
+    // every 16 bars — a musical landmark without cluttering the groove.
+    var barCount: Int = 0
 
     // Wall-clock time at which the last dot was spawned.
     // Used to compute how many 64th-note steps have elapsed since then.
@@ -193,6 +190,7 @@ class GameScene: SKScene {
         gameScore = 0
         tapCount = 0
         gridStep = 0
+        barCount = 0
         currentBPM = startingBPM
 
         backgroundColor = SKColor(white: 0.97, alpha: 1.0)
@@ -225,8 +223,24 @@ class GameScene: SKScene {
         totalLabel.zPosition = 1
         addChild(totalLabel)
 
-        // First dot spawns immediately on beat 1 (gridStep 0 → kick)
+        // First dot spawns immediately on beat 1 (gridStep 0 → kick).
+        // Snare loop starts one beat later so it lands on beat 2.
         spawnDot()
+        startSnareLoop()
+    }
+
+    // Fires a snare automatically on beats 2 and 4 every bar, independent of
+    // tap timing. This keeps the tempo audible even when the player is slow.
+    // Uses withKey so increaseTempo() can replace it cleanly at the new BPM.
+    func startSnareLoop() {
+        let b = beat
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: b),          // advance to beat 2
+            SKAction.repeatForever(SKAction.sequence([
+                SKAction.run(playClapSound),         // snare on 2 (and 4, 2, 4…)
+                SKAction.wait(forDuration: b * 2)   // every 2 beats
+            ]))
+        ]), withKey: "snareLoop")
     }
 
     // Called after every tap. Calculates the next 64th-note boundary from now
@@ -247,6 +261,7 @@ class GameScene: SKScene {
         run(SKAction.sequence([
             SKAction.wait(forDuration: max(0.001, delay)),
             SKAction.run {
+                if nextStep == 0 { self.barCount += 1 }
                 self.gridStep = nextStep
                 self.spawnDot()
             }
@@ -287,31 +302,52 @@ class GameScene: SKScene {
 
     // Maps a 64th-note grid step (0–63) to a drum sound.
     //
-    //  Bar layout (4/4, 64 steps):
-    //   0, 32    → beats 1, 3       → kick (beat 1 is always a kick)
-    //   16, 48   → beats 2, 4       → snare
-    //   12, 28   → "a" of beats 1,2 → syncopated kick
-    //   24, 56   → "and" of 2, 4    → open hi-hat (groove pocket)
-    //   all others                  → closed hi-hat
+    //  Bar layout (4/4, 64 steps) — kick/bass heavy, minimal hi-hat:
+    //   0, 8, 32, 40  → kick (beats 1, 3 + their 8th-note "ands")
+    //   12, 28, 44    → syncopated kick
+    //   16, 48        → snare (reinforces auto snare loop)
+    //   24, 56        → open hi-hat (groove pocket — only 2 per bar)
+    //   4, 36         → closed hi-hat (sparse — only 2 per bar)
+    //   beat 1 of every 16th bar → horn accent
+    //   all others    → silence (fine subdivisions stay clean)
     func playGridSound(forStep step: Int) {
+        // Horn accent at the downbeat of every 16th bar
+        if step % 64 == 0 && barCount > 0 && barCount % 16 == 0 {
+            playHorn()
+            return
+        }
+
         switch step % 64 {
-        case 0, 32:
+        case 0, 8, 32, 40:  // beats 1 & 3 plus their 8th-note offbeats → kick
             playKickSound()
-        case 16, 48:
+        case 12, 28, 44:    // syncopated kicks
+            playKickSound()
+        case 16, 48:        // beats 2 & 4 — reinforce the snare loop
             playClapSound()
-        case 12, 28:
-            playKickSound()     // syncopated kick
-        case 24, 56:
+        case 24, 56:        // "and" of 2 & 4 → open hi-hat
             playOpenHat()
-        default:
+        case 4, 36:         // sparse closed hi-hat — just two per bar
             playClosedHat()
+        default:
+            break           // silence on 32nd/64th subdivisions
         }
     }
 
-    // Bumps BPM by 5% — dotLifetime and sixtyFourthNote shorten automatically,
-    // since they derive from beat, so difficulty increases without any extra logic.
+    // Horn / stab accent — fires at the top of every 16th bar.
+    func playHorn() {
+        switch userAudioDefault {
+        case 1:  run(soundStabDD8_2)
+        case 2:  run(soundStabGB_1)
+        case 3:  run(soundStabGB_3)
+        default: run(soundStab1)
+        }
+    }
+
+    // Bumps BPM by 5% and restarts the snare loop at the new tempo.
+    // withKey replaces the existing loop so there's no doubling.
     func increaseTempo() {
         currentBPM *= 1.05
+        startSnareLoop()
     }
 
     // Closed hi-hat — 16th-note fill positions
