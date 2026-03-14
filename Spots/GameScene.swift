@@ -327,65 +327,86 @@ class GameScene: SKScene {
     }
 
     // Bumps BPM by 5% — dotLifetime and sixtyFourthNote shorten automatically.
+    // Flashes the new BPM as a large background label that fades out over 5 s.
     func increaseTempo() {
         currentBPM *= 1.05
+
+        let bpmLabel = SKLabelNode(fontNamed: "Pusab")
+        bpmLabel.text = "\(Int(currentBPM)) BPM"
+        bpmLabel.fontSize = 80
+        bpmLabel.fontColor = SKColor(white: 0.82, alpha: 1.0)
+        bpmLabel.horizontalAlignmentMode = .center
+        bpmLabel.position = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
+        bpmLabel.zPosition = 0  // behind dots
+        addChild(bpmLabel)
+
+        bpmLabel.run(SKAction.sequence([
+            SKAction.wait(forDuration: 4.0),
+            SKAction.fadeOut(withDuration: 1.0),
+            SKAction.removeFromParent()
+        ]))
     }
 
     // Closed hi-hat (or kit equivalent) — sparse fill positions
     func playClosedHat() {
+        let era = barCount / 16
         switch userAudioDefault {
         case 1:  run(soundHiHatDD8_1)
         case 2:  run(soundKickGB_4)     // GB has no hat — use soft kick variant
-        case 3:  run(SKAction.playSoundFileNamed("GBpulse\(Int.random(in: 6...10)).wav", waitForCompletion: false))
+        case 3:  run(SKAction.playSoundFileNamed("GBpulse\((era % 5) + 6).wav", waitForCompletion: false))
         default: run(soundHiHat808_1)
         }
     }
 
-    // Open hi-hat (or kit equivalent) — groove pocket
+    // Open hi-hat (or kit equivalent) — bar turnaround
     func playOpenHat() {
+        let era = barCount / 16
         switch userAudioDefault {
         case 1:  run(soundHiHatDD8_2)
         case 2:  run(soundSnareGB_4)    // GB: rim-like snare as open hat substitute
-        case 3:  run(SKAction.playSoundFileNamed("GBpulse\(Int.random(in: 1...5)).wav", waitForCompletion: false))
+        case 3:  run(SKAction.playSoundFileNamed("GBpulse\((era % 5) + 1).wav", waitForCompletion: false))
         default: run(soundHiHat808_2)
         }
     }
 
-    // Kick — fires on beats 1 and 3 (steps 0 and 32).
-    // Cycles through kick variants every 8 taps for tonal variation.
+    // Kick — dominant sound in the pattern.
+    // Stays on the same variant for 16 bars, then rotates to the next —
+    // creating an audible "break" every 16 bars as the texture shifts.
     func playKickSound() {
+        let era = barCount / 16  // 0 for bars 0–15, 1 for bars 16–31, etc.
         switch userAudioDefault {
         case 1:
-            let kicks = [soundKickDD8_1, soundKickDD8_3, soundKickDD8_1, soundKickDD8_1, soundKickDD8_3]
-            run(kicks[(tapCount / 8) % kicks.count])
+            let kicks = [soundKickDD8_1, soundKickDD8_2, soundKickDD8_3]
+            run(kicks[era % kicks.count])
         case 2:
-            let kicks = [soundKickGB_1, soundKickGB_3, soundKickGB_4, soundKickGB_1, soundKickGB_3]
-            run(kicks[(tapCount / 8) % kicks.count])
+            let kicks = [soundKickGB_1, soundKickGB_2, soundKickGB_3, soundKickGB_4]
+            run(kicks[era % kicks.count])
         case 3:
-            run(SKAction.playSoundFileNamed("GBpulse\(Int.random(in: 1...10)).wav", waitForCompletion: false))
+            let pulseNum = (era % 10) + 1
+            run(SKAction.playSoundFileNamed("GBpulse\(pulseNum).wav", waitForCompletion: false))
         default:
-            let kicks = [soundKick808_1, soundKick808_3, soundKick808_1, soundKick808_1, soundKick808_3]
-            run(kicks[(tapCount / 8) % kicks.count])
+            let kicks = [soundKick808_1, soundKick808_2, soundKick808_3, soundKick808_4]
+            run(kicks[era % kicks.count])
         }
     }
 
-    // Snare — fires only when a dot spawns on a snare grid step (16, 48).
-    // Cycles through all snare variants within the active kit.
+    // Snare — fires only when a dot spawns on a snare grid step (2, 6).
+    // Stays on the same variant for 16 bars alongside the kick, then rotates.
     func playClapSound() {
-        let idx = (tapCount / 2) % 4
+        let era = barCount / 16
         switch userAudioDefault {
         case 1:
             let snares = [soundSnareDD8_1, soundSnareDD8_2, soundSnareDD8_3, soundSnareDD8_4]
-            run(snares[idx])
+            run(snares[era % snares.count])
         case 2:
             let snares = [soundSnareGB_1, soundSnareGB_2, soundSnareGB_3, soundSnareGB_4]
-            run(snares[idx])
+            run(snares[era % snares.count])
         case 3:
             let snares = [soundSnareGBT_1, soundSnareGBT_2, soundSnareGBT_3, soundSnareGBT_4]
-            run(snares[idx])
+            run(snares[era % snares.count])
         default:
             let snares = [soundSnare808_1, soundSnare808_2, soundSnare808_3, soundSnare808_4]
-            run(snares[idx])
+            run(snares[era % snares.count])
         }
     }
 
