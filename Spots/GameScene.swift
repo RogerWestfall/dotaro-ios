@@ -15,11 +15,9 @@ import GameplayKit
 // 2 = Gameboy 8-bit drums
 // 3 = Gameboy 8-bit tones
 
-var scoreNumber = 0
-var scoreNumber2 = 0
 var gameScore = 0
 
-// Starting BPM — increases by 5% every 32 taps (see checkTempoAndFills)
+// Starting BPM — increases by 5% every 48 taps (see checkTempoAndFills)
 let startingBPM: Double = 86.0
 
 // ── Kit colour palettes ────────────────────────────────────────────────────────
@@ -27,7 +25,6 @@ let startingBPM: Double = 86.0
 // Module-level so DrumPadScene can call these too (same target → same module).
 
 /// Returns the 4-colour palette for the currently active drum kit.
-/// GameScene uses it for spawn dot colours; DrumPadScene uses it for pad colours.
 func currentKitPalette() -> [SKColor] {
     switch userAudioDefault {
     case 1: // Yamaha DD-8 — 80s neon synthwave
@@ -144,31 +141,39 @@ let soundSnareGBT_4 = SKAction.playSoundFileNamed("GBsnare2.wav", waitForComplet
 
 class GameScene: SKScene {
 
-    let scoreLabel   = SKLabelNode(fontNamed: "Pusab")
-    let totalLabel   = SKLabelNode(fontNamed: "Pusab")  // taps this game; updates live
+    let scoreLabel = SKLabelNode(fontNamed: "Pusab")
+    let totalLabel = SKLabelNode(fontNamed: "Pusab")
     var gameArea = CGRect()
 
-    // Live BPM — starts at 86, increases 5% every 32 taps.
-    // All timing (beat, dotLifetime, hi-hat loop) derives from this.
+    // Live BPM — starts at 86, increases 5% every 48 taps.
     var currentBPM: Double = startingBPM
 
-    // One beat in seconds at the current tempo
+    // One beat in seconds at the current tempo.
     var beat: Double { 60.0 / currentBPM }
 
-    // How long a dot stays on screen before triggering game over.
-    // 4 beats = one full musical bar — gives the player time to place
-    // their tap musically rather than scrambling. Shrinks naturally as
-    // BPM rises, so the window tightens gradually without feeling punishing.
+    // One 8th note — the quantization resolution for dot spawning.
+    // At 86 BPM an 8th note is ~349 ms, giving a perceptible but musical snap
+    // that locks every spawn to the nearest upbeat or downbeat.
+    var eighthNote: Double { beat / 2 }
+
+    // How long a dot stays on screen before triggering game over (one full bar).
+    // Shortens naturally as BPM rises, so difficulty increases gradually.
     var dotLifetime: Double { beat * 4.0 }
 
     // Total taps this game — drives tempo progression and fills.
     var tapCount = 0
 
-    // 16-step hi-hat counter (0–15 = one bar of 16th notes).
-    // Steps 0,2,4,6,8,10,12 → closed hat (8th notes).
-    // Step 14 → open hat ("and" of beat 4 — groove pocket).
-    // Odd steps → silence (keeps the pattern crisp, not cluttered).
-    var hhStep: Int = 0
+    // Current position in the 8-step bar (0–7).
+    // Advances by however many 8th-note steps elapsed since the last spawn.
+    // The sound assigned to each new dot is determined by this value:
+    //   0, 4 → kick  (beats 1 and 3)
+    //   2, 6 → snare (beats 2 and 4)
+    //   1, 3, 5, 7 → open hi-hat ("and" of each beat)
+    var gridStep: Int = 0
+
+    // Wall-clock time at which the last dot was spawned.
+    // Used to compute how many 64th-note steps have elapsed since then.
+    var lastSpawnTime: TimeInterval = 0
 
     override init(size: CGSize) {
         let maxAspectRatio: CGFloat = 16.0 / 9.0
@@ -183,11 +188,9 @@ class GameScene: SKScene {
     }
 
     override func didMove(to view: SKView) {
-        scoreNumber = 0
-        scoreNumber2 = 0
         gameScore = 0
         tapCount = 0
-        hhStep = 0
+        gridStep = 0
         currentBPM = startingBPM
 
         backgroundColor = SKColor(white: 0.97, alpha: 1.0)
@@ -220,52 +223,41 @@ class GameScene: SKScene {
         totalLabel.zPosition = 1
         addChild(totalLabel)
 
-        // Intro kick establishes the tempo; hi-hat + first dot launch one beat later.
-        playKickSound()
+        // First dot spawns immediately on beat 1 (gridStep 0 → kick)
+        spawnDot()
+    }
+
+    // Called after every tap. Calculates the next 8th-note boundary from now
+    // and schedules the next dot spawn at exactly that moment.
+    //
+    // Because every spawn is quantized to the global beat grid, the sounds
+    // always land on a musical subdivision — the player's tapping rhythm
+    // directly generates the kick/snare/hat pattern they hear.
+    func scheduleNextDot() {
+        let now = CACurrentMediaTime()
+        let elapsed = now - lastSpawnTime
+
+        // Floor + 1 ensures we always target a future boundary, never the past.
+        let stepsToNext = Int(elapsed / eighthNote) + 1
+        let delay = Double(stepsToNext) * eighthNote - elapsed
+        let nextStep = (gridStep + stepsToNext) % 8
+
         run(SKAction.sequence([
-            SKAction.wait(forDuration: beat),
+            SKAction.wait(forDuration: max(0.001, delay)),
             SKAction.run {
-                self.startRhythm()
+                self.gridStep = nextStep
                 self.spawnDot()
             }
-        ]))
+        ]), withKey: "nextDot")
     }
 
-    // Starts (or re-syncs) the hi-hat loop at the current BPM.
-    //
-    // Dots are player-driven: tapping the single active dot immediately
-    // spawns the next one, so the player chooses their own subdivision
-    // (quarter notes, eighth notes, etc.) and their taps ARE the beat.
-    //
-    // The hi-hat provides the tempo grid to groove against. It restarts
-    // with an optional delay so tempo-increase re-syncs feel smooth.
-    //
-    // run(_:withKey:) replaces any existing loop with the same key,
-    // so no explicit removal is needed before calling this.
-    func startRhythm(delay: Double = 0) {
-        let hhLoop = SKAction.repeatForever(SKAction.sequence([
-            SKAction.run(playHiHatSound),
-            SKAction.wait(forDuration: beat / 4)
-        ]))
-        run(SKAction.sequence([
-            SKAction.wait(forDuration: delay),
-            hhLoop
-        ]), withKey: "hiHatLoop")
-    }
-
-    // Bumps BPM by 5% and re-syncs the hi-hat at the new tempo.
-    // Called every 32 taps via checkTempoAndFills().
-    func increaseTempo() {
-        currentBPM *= 1.05
-        startRhythm(delay: beat)
-    }
-
-    // One dot at a time — picks a random colour from the active kit's palette,
-    // pops in with a brief scale pulse, then shrinks to zero over dotLifetime.
-    // Tapping it fires either a kick or snare sound (alternating by tapCount)
-    // and immediately spawns the next dot so the player keeps their groove.
-    // Missing (dot reaches zero) → game over.
+    // Creates one dot at a random position and fires the sound assigned to the
+    // current gridStep. The dot shrinks to zero over dotLifetime; missing it
+    // triggers game over.
     func spawnDot() {
+        lastSpawnTime = CACurrentMediaTime()
+        playGridSound(forStep: gridStep)
+
         let palette = currentKitPalette()
         let dot = SKShapeNode(circleOfRadius: 46)
         dot.fillColor   = palette[Int.random(in: 0..<palette.count)]
@@ -283,8 +275,6 @@ class GameScene: SKScene {
         ]))
     }
 
-    // Works for both SKSpriteNode and SKShapeNode — uses frame.size for margins
-    // so the dot is always fully on-screen regardless of node type.
     func randomPosition(for node: SKNode) -> CGPoint {
         let w = node.frame.size.width
         let h = node.frame.size.height
@@ -293,109 +283,62 @@ class GameScene: SKScene {
         return CGPoint(x: x, y: y)
     }
 
-    // 16-step hi-hat pattern — fires every 16th note (beat/4).
+    // Maps an 8th-note grid step (0–7) to a drum sound.
     //
-    //  Step: 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
-    //  Beat: 1  .  +  .  2  .  +  .  3  .  +  .  4  .  +  .
-    //
-    //  0,2,4,6,8,10,12 → closed hi-hat (steady 8th-note pulse)
-    //  14              → open hi-hat ("and" of beat 4 — the groove pocket)
-    //  odd steps       → silence (crisp gaps between 8th notes)
-    //
-    // The player controls all kick and snare timing through taps,
-    // so no automated kick fires here — only the hi-hat backdrop.
-    func playHiHatSound() {
-        let step = hhStep
-        hhStep = (hhStep + 1) % 16
-
-        switch step {
-        case 0, 2, 4, 6, 8, 10, 12:
-            playClosedHat()
-        case 14:
-            playOpenHat()
+    //  Bar layout (4/4, 8 steps — one 8th note each):
+    //   Step 0 → beat 1        → kick
+    //   Step 2 → beat 2        → snare
+    //   Step 4 → beat 3        → kick
+    //   Step 6 → beat 4        → snare
+    //   Steps 1, 3, 5, 7 → "and" of each beat → open hi-hat
+    func playGridSound(forStep step: Int) {
+        switch step % 8 {
+        case 0, 4:
+            playKickSound()
+        case 2, 6:
+            playClapSound()
         default:
-            break   // silence on 16th-note off-steps
+            playOpenHat()
         }
     }
 
-    // Closed hi-hat — the steady 8th-note backbone
-    func playClosedHat() {
-        switch userAudioDefault {
-        case 1:  run(soundHiHatDD8_1)
-        default: run(soundHiHat808_1)
-        }
+    // Bumps BPM by 5% — dotLifetime and sixtyFourthNote shorten automatically
+    // since they derive from beat, so difficulty increases without any extra logic.
+    func increaseTempo() {
+        currentBPM *= 1.05
     }
 
-    // Open hi-hat — fires on step 14 ("and" of beat 4) for groove pocket
+    // Open hi-hat — offbeat accent ("and" of each beat)
     func playOpenHat() {
         switch userAudioDefault {
-        case 1:  run(soundHiHatDD8_2)   // DD-8 crash as open hat
-        default: run(soundHiHat808_2)   // 808 open hat
+        case 1:  run(soundHiHatDD8_2)
+        default: run(soundHiHat808_2)
         }
     }
 
-    // Kick sound for the active drum kit.
-    // Cycles every 8 bass taps to keep the sound progression interesting.
+    // Kick — fires on beats 1 and 3 (steps 0 and 32).
+    // Cycles through kick variants every 8 taps for tonal variation.
     func playKickSound() {
         switch userAudioDefault {
         case 1:
             let kicks = [soundKickDD8_1, soundKickDD8_3, soundKickDD8_1, soundKickDD8_1, soundKickDD8_3]
-            run(kicks[(scoreNumber / 8) % kicks.count])
+            run(kicks[(tapCount / 8) % kicks.count])
         case 2:
             let kicks = [soundKickGB_1, soundKickGB_3, soundKickGB_4, soundKickGB_1, soundKickGB_3]
-            run(kicks[(scoreNumber / 8) % kicks.count])
+            run(kicks[(tapCount / 8) % kicks.count])
         case 3:
-            // Game Boy tones: random pulse on every hit for melodic variation
             run(SKAction.playSoundFileNamed("GBpulse\(Int.random(in: 1...10)).wav", waitForCompletion: false))
         default:
             let kicks = [soundKick808_1, soundKick808_3, soundKick808_1, soundKick808_1, soundKick808_3]
-            run(kicks[(scoreNumber / 8) % kicks.count])
+            run(kicks[(tapCount / 8) % kicks.count])
         }
     }
 
-    // Checks whether the current tap count should trigger a tempo increase
-    // or a tom fill, and fires the appropriate event.
-    // Called after every successful tap in touchesBegan.
-    //
-    // Tempo bumps every 48 taps (+5% BPM) — gives the player time to settle
-    // into a groove at each level before the pressure increases.
-    // Tom fills fire midway (every 24 taps) as a musical phrase marker.
-    func checkTempoAndFills() {
-        if tapCount % 48 == 0 {
-            increaseTempo()
-        }
-        if tapCount % 24 == 0 && tapCount % 48 != 0 {
-            playTomFill()
-        }
-    }
-
-    // Tom fill — 3 rapid hits that burst immediately on the trigger tap.
-    // Fires every 16 taps (between the 32-tap tempo bumps) as a musical
-    // accent marking each mini-phrase boundary.
-    func playTomFill() {
-        let fillSound: SKAction
-        switch userAudioDefault {
-        case 1:  fillSound = soundSnareDD8_3   // DD-8 rim as fill
-        case 2:  fillSound = soundSnareGB_3    // GB snare variant as fill
-        case 3:  fillSound = soundSnareGB_3
-        default: fillSound = soundTom808_1     // 808 tom for a proper fill
-        }
-
-        run(SKAction.sequence([
-            fillSound,
-            SKAction.wait(forDuration: beat * 0.125),
-            fillSound,
-            SKAction.wait(forDuration: beat * 0.125),
-            fillSound
-        ]))
-    }
-
-    // Snare/clap sound for the active drum kit.
-    // Cycles through snare variants every 8 clap taps; stab accents fire
-    // at every 16th clap tap as a phrase-turnaround flourish.
+    // Snare / clap — fires on beats 2 and 4 (steps 16 and 48).
+    // Cycles through variants; stab accent fires at phrase turnarounds.
     func playClapSound() {
-        let bar = (scoreNumber2 / 8) % 6
-        let isPhraseTurnaround = scoreNumber2 % 16 == 15
+        let bar = (tapCount / 8) % 6
+        let isPhraseTurnaround = tapCount % 16 == 15
 
         switch userAudioDefault {
         case 1:
@@ -411,7 +354,7 @@ class GameScene: SKScene {
             run(snares[bar])
             if isPhraseTurnaround {
                 let stabs = [soundStabGB_1, soundStabGB_2, soundStabGB_3]
-                run(SKAction.sequence([SKAction.wait(forDuration: beat), stabs[(scoreNumber2 / 16) % 3]]))
+                run(SKAction.sequence([SKAction.wait(forDuration: beat), stabs[(tapCount / 16) % 3]]))
             }
         case 3:
             let snares = [soundSnareGB_1, soundSnareGB_2, soundSnareGB_1,
@@ -419,7 +362,7 @@ class GameScene: SKScene {
             run(snares[bar])
             if isPhraseTurnaround {
                 let stabs = [soundStabGB_1, soundStabGB_2, soundStabGB_3]
-                run(SKAction.sequence([SKAction.wait(forDuration: beat), stabs[(scoreNumber2 / 16) % 3]]))
+                run(SKAction.sequence([SKAction.wait(forDuration: beat), stabs[(tapCount / 16) % 3]]))
             }
         default:
             let snares = [soundSnare808_1, soundSnare808_2, soundSnare808_1,
@@ -429,6 +372,35 @@ class GameScene: SKScene {
                 run(SKAction.sequence([SKAction.wait(forDuration: beat), soundStab1]))
             }
         }
+    }
+
+    // Tempo increase every 48 taps; tom fill midway at 24 taps.
+    func checkTempoAndFills() {
+        if tapCount % 48 == 0 {
+            increaseTempo()
+        }
+        if tapCount % 24 == 0 && tapCount % 48 != 0 {
+            playTomFill()
+        }
+    }
+
+    // Tom fill — 3 rapid hits marking each mini-phrase boundary.
+    func playTomFill() {
+        let fillSound: SKAction
+        switch userAudioDefault {
+        case 1:  fillSound = soundSnareDD8_3
+        case 2:  fillSound = soundSnareGB_3
+        case 3:  fillSound = soundSnareGB_3
+        default: fillSound = soundTom808_1
+        }
+
+        run(SKAction.sequence([
+            fillSound,
+            SKAction.wait(forDuration: beat * 0.125),
+            fillSound,
+            SKAction.wait(forDuration: beat * 0.125),
+            fillSound
+        ]))
     }
 
     func runnGameOver() {
@@ -457,18 +429,9 @@ class GameScene: SKScene {
                 scoreLabel.text = "Score \(gameScore)"
                 totalLabel.text  = "Total \(gameScore)"
 
-                // Odd taps → kick; even taps → snare.
-                // The player drives both instruments with a single dot,
-                // creating a natural kick-snare pattern through their rhythm.
-                if tapCount % 2 == 1 {
-                    scoreNumber += 1
-                    playKickSound()
-                } else {
-                    scoreNumber2 += 1
-                    playClapSound()
-                }
-
-                spawnDot()
+                // Tap removes the dot silently — next dot spawns at the nearest
+                // future 64th-note boundary and fires its grid-assigned sound.
+                scheduleNextDot()
                 checkTempoAndFills()
             }
         }
