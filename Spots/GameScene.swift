@@ -224,23 +224,7 @@ class GameScene: SKScene {
         addChild(totalLabel)
 
         // First dot spawns immediately on beat 1 (gridStep 0 → kick).
-        // Snare loop starts one beat later so it lands on beat 2.
         spawnDot()
-        startSnareLoop()
-    }
-
-    // Fires a snare automatically on beats 2 and 4 every bar, independent of
-    // tap timing. This keeps the tempo audible even when the player is slow.
-    // Uses withKey so increaseTempo() can replace it cleanly at the new BPM.
-    func startSnareLoop() {
-        let b = beat
-        run(SKAction.sequence([
-            SKAction.wait(forDuration: b),          // advance to beat 2
-            SKAction.repeatForever(SKAction.sequence([
-                SKAction.run(playClapSound),         // snare on 2 (and 4, 2, 4…)
-                SKAction.wait(forDuration: b * 2)   // every 2 beats
-            ]))
-        ]), withKey: "snareLoop")
     }
 
     // Called after every tap. Calculates the next 64th-note boundary from now
@@ -343,25 +327,27 @@ class GameScene: SKScene {
         }
     }
 
-    // Bumps BPM by 5% and restarts the snare loop at the new tempo.
-    // withKey replaces the existing loop so there's no doubling.
+    // Bumps BPM by 5% — dotLifetime and sixtyFourthNote shorten automatically.
     func increaseTempo() {
         currentBPM *= 1.05
-        startSnareLoop()
     }
 
-    // Closed hi-hat — 16th-note fill positions
+    // Closed hi-hat (or kit equivalent) — sparse fill positions
     func playClosedHat() {
         switch userAudioDefault {
         case 1:  run(soundHiHatDD8_1)
+        case 2:  run(soundKickGB_4)     // GB has no hat — use soft kick variant
+        case 3:  run(SKAction.playSoundFileNamed("GBpulse\(Int.random(in: 6...10)).wav", waitForCompletion: false))
         default: run(soundHiHat808_1)
         }
     }
 
-    // Open hi-hat — groove pocket and offbeat accents
+    // Open hi-hat (or kit equivalent) — groove pocket
     func playOpenHat() {
         switch userAudioDefault {
         case 1:  run(soundHiHatDD8_2)
+        case 2:  run(soundSnareGB_4)    // GB: rim-like snare as open hat substitute
+        case 3:  run(SKAction.playSoundFileNamed("GBpulse\(Int.random(in: 1...5)).wav", waitForCompletion: false))
         default: run(soundHiHat808_2)
         }
     }
@@ -384,43 +370,23 @@ class GameScene: SKScene {
         }
     }
 
-    // Snare / clap — fires on beats 2 and 4 (steps 16 and 48).
-    // Cycles through variants; stab accent fires at phrase turnarounds.
+    // Snare — fires only when a dot spawns on a snare grid step (16, 48).
+    // Cycles through all snare variants within the active kit.
     func playClapSound() {
-        let bar = (tapCount / 8) % 6
-        let isPhraseTurnaround = tapCount % 16 == 15
-
+        let idx = (tapCount / 2) % 4
         switch userAudioDefault {
         case 1:
-            let snares = [soundSnareDD8_1, soundSnareDD8_2, soundSnareDD8_3,
-                          soundSnareDD8_4, soundSnareDD8_3, soundSnareDD8_1]
-            run(snares[bar])
-            if isPhraseTurnaround {
-                run(SKAction.sequence([SKAction.wait(forDuration: beat), soundStabDD8_1]))
-            }
+            let snares = [soundSnareDD8_1, soundSnareDD8_2, soundSnareDD8_3, soundSnareDD8_4]
+            run(snares[idx])
         case 2:
-            let snares = [soundSnareGB_1, soundSnareGB_2, soundSnareGB_3,
-                          soundSnareGB_4, soundSnareGB_3, soundSnareGB_1]
-            run(snares[bar])
-            if isPhraseTurnaround {
-                let stabs = [soundStabGB_1, soundStabGB_2, soundStabGB_3]
-                run(SKAction.sequence([SKAction.wait(forDuration: beat), stabs[(tapCount / 16) % 3]]))
-            }
+            let snares = [soundSnareGB_1, soundSnareGB_2, soundSnareGB_3, soundSnareGB_4]
+            run(snares[idx])
         case 3:
-            let snares = [soundSnareGB_1, soundSnareGB_2, soundSnareGB_1,
-                          soundSnareGB_2, soundSnareGB_1, soundSnareGB_2]
-            run(snares[bar])
-            if isPhraseTurnaround {
-                let stabs = [soundStabGB_1, soundStabGB_2, soundStabGB_3]
-                run(SKAction.sequence([SKAction.wait(forDuration: beat), stabs[(tapCount / 16) % 3]]))
-            }
+            let snares = [soundSnareGBT_1, soundSnareGBT_2, soundSnareGBT_3, soundSnareGBT_4]
+            run(snares[idx])
         default:
-            let snares = [soundSnare808_1, soundSnare808_2, soundSnare808_1,
-                          soundSnare808_4, soundSnare808_3, soundSnare808_1]
-            run(snares[bar])
-            if isPhraseTurnaround {
-                run(SKAction.sequence([SKAction.wait(forDuration: beat), soundStab1]))
-            }
+            let snares = [soundSnare808_1, soundSnare808_2, soundSnare808_3, soundSnare808_4]
+            run(snares[idx])
         }
     }
 
@@ -434,13 +400,14 @@ class GameScene: SKScene {
         }
     }
 
-    // Tom fill — 3 rapid hits marking each mini-phrase boundary.
+    // Tom fill — 3 rapid kick hits marking each mini-phrase boundary.
+    // Uses kicks (not snares) so the fill never fires a snare without a dot.
     func playTomFill() {
         let fillSound: SKAction
         switch userAudioDefault {
-        case 1:  fillSound = soundSnareDD8_3
-        case 2:  fillSound = soundSnareGB_3
-        case 3:  fillSound = soundSnareGB_3
+        case 1:  fillSound = soundKickDD8_2
+        case 2:  fillSound = soundKickGB_3
+        case 3:  fillSound = SKAction.playSoundFileNamed("GBpulse\(Int.random(in: 1...5)).wav", waitForCompletion: false)
         default: fillSound = soundTom808_1
         }
 
