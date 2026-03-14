@@ -112,6 +112,12 @@ class GameScene: SKScene {
     // and tempo increases — independent of player taps so the beat never drifts).
     var clapSpawnCount = 0
 
+    // 16-step hi-hat counter (0–15 = one bar of 16th notes).
+    // Steps 0,2,4,6,8,10,12 → closed hat (8th notes).
+    // Step 14 → open hat + anticipation kick ("and" of beat 4 — the groove's pocket).
+    // Odd steps → silence (keeps the pattern crisp, not cluttered).
+    var hhStep: Int = 0
+
     override init(size: CGSize) {
         let maxAspectRatio: CGFloat = 16.0 / 9.0
         let playableWidth = size.height / maxAspectRatio
@@ -129,6 +135,7 @@ class GameScene: SKScene {
         scoreNumber2 = 0
         gameScore = 0
         clapSpawnCount = 0
+        hhStep = 0
         currentBPM = startingBPM
 
         backgroundColor = SKColor.white
@@ -174,7 +181,7 @@ class GameScene: SKScene {
     //
     //   Bass dots  → beats 1 & 3  — kick fires on spawn
     //   Clap dots  → beats 2 & 4  — snare fires on spawn
-    //   Hi-hat     → every 8th note (beat / 2) — gives the rhythmic pulse
+    //   Hi-hat     → 16th-note loop (beat / 4), step counter picks sound per step
     //
     // `bassDelay` lets the caller re-sync loops mid-song after a tempo change.
     // When called from beat 2 (clap spawn), pass `beat` so bass re-enters on
@@ -202,12 +209,18 @@ class GameScene: SKScene {
             clapLoop
         ]), withKey: "clapLoop")
 
-        // Hi-hat on every 8th note — restarts immediately at the new tempo
+        // Hi-hat on every 16th note — step counter decides which sound fires.
+        // Running at beat/4 lets us put the open hat and anticipation kick
+        // precisely on step 14 ("and" of beat 4) for syncopation.
+        // Delayed by bassDelay so the pattern re-syncs cleanly on tempo bumps.
         let hhLoop = SKAction.repeatForever(SKAction.sequence([
             SKAction.run(playHiHatSound),
-            SKAction.wait(forDuration: beat / 2)
+            SKAction.wait(forDuration: beat / 4)
         ]))
-        run(hhLoop, withKey: "hiHatLoop")
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: bassDelay),
+            hhLoop
+        ]), withKey: "hiHatLoop")
     }
 
     // Called every 16 bars (32 clap spawns). Bumps BPM by 5% and restarts
@@ -252,6 +265,13 @@ class GameScene: SKScene {
             increaseTempo()
         }
 
+        // Tom fill every 8 bars (16 clap spawns) — but NOT on the same bar
+        // as a tempo increase (bar 16, 32…) since that's already eventful.
+        // Fires on beat 4, so the fill lands between beat 4 and bar 1.
+        if clapSpawnCount % 16 == 0 && clapSpawnCount % 32 != 0 {
+            playTomFill()
+        }
+
         let clapDot = SKSpriteNode(imageNamed: "dot\(Int.random(in: 5...8))")
         clapDot.zPosition = 3
         clapDot.setScale(0.25)
@@ -274,13 +294,57 @@ class GameScene: SKScene {
         return CGPoint(x: x, y: y)
     }
 
-    // Hi-hat sound on every 8th note — the subdivision that drives the groove
+    // 16-step hi-hat pattern — fires every 16th note (beat/4).
+    //
+    //  Step: 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+    //  Beat: 1  .  +  .  2  .  +  .  3  .  +  .  4  .  +  .
+    //
+    //  0,2,4,6,8,10,12 → closed hi-hat (the steady 8th-note pulse)
+    //  14              → open hi-hat + anticipation kick ("and" of beat 4)
+    //  odd steps       → silence (crisp gaps between 8th notes)
+    //
+    // The open hat + anticipation kick on step 14 is the classic hip-hop
+    // pocket move — it creates forward momentum into beat 1.
     func playHiHatSound() {
+        let step = hhStep
+        hhStep = (hhStep + 1) % 16
+
+        switch step {
+        case 0, 2, 4, 6, 8, 10, 12:
+            playClosedHat()
+        case 14:
+            playOpenHat()
+            playAnticipationKick()
+        default:
+            break   // silence on 16th-note off-steps
+        }
+    }
+
+    // Closed hi-hat — the steady 8th-note backbone
+    func playClosedHat() {
         switch userAudioDefault {
         case 1:  run(soundHiHatDD8_1)
-        case 2:  run(soundHiHat808_1)   // GB kit has no hi-hat; 808 hat works fine
-        case 3:  run(soundHiHat808_1)
-        default: run(soundHiHat808_1)
+        default: run(soundHiHat808_1)   // 808 closed hat for all other kits
+        }
+    }
+
+    // Open hi-hat — fires only on step 14 ("and" of beat 4)
+    func playOpenHat() {
+        switch userAudioDefault {
+        case 1:  run(soundHiHatDD8_2)   // DD-8 crash as open hat
+        default: run(soundHiHat808_2)   // 808 open hat
+        }
+    }
+
+    // Anticipation kick — fires on "and" of beat 4 alongside the open hat.
+    // Uses a different kick sample than the main beat kick so it sits
+    // underneath rather than competing with beats 1 & 3.
+    func playAnticipationKick() {
+        switch userAudioDefault {
+        case 1:  run(soundKickDD8_2)
+        case 2:  run(soundKickGB_4)
+        case 3:  run(SKAction.playSoundFileNamed("GBpulse\(Int.random(in: 1...10)).wav", waitForCompletion: false))
+        default: run(soundKick808_4)    // 808-Kicks09 — lighter than the main kick
         }
     }
 
@@ -301,6 +365,29 @@ class GameScene: SKScene {
             let kicks = [soundKick808_1, soundKick808_3, soundKick808_1, soundKick808_1, soundKick808_3]
             run(kicks[(scoreNumber / 8) % kicks.count])
         }
+    }
+
+    // Tom fill — 3 quick hits leading from beat 4 into beat 1 of the next bar.
+    // Fires every 8 bars (not on the 16-bar tempo-bump bars).
+    // Timing: starts on beat 4 "+", landing on beat 4 "a" and beat 1 (with kick).
+    // The final tom on beat 1 doubles the kick for a satisfying crash-landing.
+    func playTomFill() {
+        let fillSound: SKAction
+        switch userAudioDefault {
+        case 1:  fillSound = soundSnareDD8_3   // DD-8 rim as fill
+        case 2:  fillSound = soundSnareGB_3    // GB snare variant as fill
+        case 3:  fillSound = soundSnareGB_3
+        default: fillSound = soundTom808_1     // 808 tom for a proper fill
+        }
+
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: beat * 0.5),     // beat 4 "+"
+            fillSound,
+            SKAction.wait(forDuration: beat * 0.25),    // beat 4 "a"
+            fillSound,
+            SKAction.wait(forDuration: beat * 0.25),    // beat 1 (doubles the kick)
+            fillSound
+        ]))
     }
 
     // Snare/clap sound for the active drum kit.
