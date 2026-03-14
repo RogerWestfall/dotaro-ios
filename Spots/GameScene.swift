@@ -156,8 +156,10 @@ class GameScene: SKScene {
     var beat: Double { 60.0 / currentBPM }
 
     // How long a dot stays on screen before triggering game over.
-    // Shrinks automatically as BPM rises — the sole difficulty driver.
-    var dotLifetime: Double { beat * 2.0 }
+    // 4 beats = one full musical bar — gives the player time to place
+    // their tap musically rather than scrambling. Shrinks naturally as
+    // BPM rises, so the window tightens gradually without feeling punishing.
+    var dotLifetime: Double { beat * 4.0 }
 
     // Total taps this game — drives tempo progression and fills.
     var tapCount = 0
@@ -261,6 +263,8 @@ class GameScene: SKScene {
 
     // Bass dot — SKShapeNode circle in the active kit's palette.
     // Larger (radius 46, no outline) = weighty kick character.
+    // Pops in with a brief scale pulse so the player notices it immediately,
+    // then gradually shrinks to zero over dotLifetime.
     // Tap fires the kick sound and immediately spawns the next dot.
     // Miss (dot shrinks to zero) → game over.
     func spawnBassDot() {
@@ -274,7 +278,9 @@ class GameScene: SKScene {
         addChild(dot)
 
         dot.run(SKAction.sequence([
-            SKAction.scale(to: 0, duration: dotLifetime),
+            SKAction.scale(to: 1.18, duration: 0.10), // attention pop
+            SKAction.scale(to: 1.0,  duration: 0.06), // settle
+            SKAction.scale(to: 0,    duration: dotLifetime), // countdown
             SKAction.run(runnGameOver)
         ]))
     }
@@ -282,6 +288,7 @@ class GameScene: SKScene {
     // Clap dot — slightly smaller (radius 36) with a white ring.
     // The size + stroke combo distinguishes it from the bass dot at a glance,
     // even though both draw from the same kit palette.
+    // Same pop-in animation; smaller pulse (1.14×) matches its snappier character.
     // Tap fires the snare sound and immediately spawns the next dot.
     // Miss → game over.
     func spawnClapDot() {
@@ -296,7 +303,9 @@ class GameScene: SKScene {
         addChild(clapDot)
 
         clapDot.run(SKAction.sequence([
-            SKAction.scale(to: 0, duration: dotLifetime),
+            SKAction.scale(to: 1.14, duration: 0.10), // attention pop
+            SKAction.scale(to: 1.0,  duration: 0.06), // settle
+            SKAction.scale(to: 0,    duration: dotLifetime), // countdown
             SKAction.run(runnGameOver)
         ]))
     }
@@ -374,13 +383,15 @@ class GameScene: SKScene {
     // Checks whether the current tap count should trigger a tempo increase
     // or a tom fill, and fires the appropriate event.
     // Called after every successful tap in touchesBegan.
+    //
+    // Tempo bumps every 48 taps (+5% BPM) — gives the player time to settle
+    // into a groove at each level before the pressure increases.
+    // Tom fills fire midway (every 24 taps) as a musical phrase marker.
     func checkTempoAndFills() {
-        // Increase tempo every 32 taps (+5% BPM)
-        if tapCount % 32 == 0 {
+        if tapCount % 48 == 0 {
             increaseTempo()
         }
-        // Tom fill at tap 16, 48, 80… (midway between tempo bumps)
-        if tapCount % 16 == 0 && tapCount % 32 != 0 {
+        if tapCount % 24 == 0 && tapCount % 48 != 0 {
             playTomFill()
         }
     }
