@@ -151,10 +151,10 @@ class GameScene: SKScene {
     // One beat in seconds at the current tempo.
     var beat: Double { 60.0 / currentBPM }
 
-    // One 16th note — the quantization resolution for dot spawning.
-    // At 86 BPM a 16th note is ~174 ms — tight enough to feel snappy,
-    // loose enough to be forgiving.
-    var sixteenthNote: Double { beat / 4 }
+    // One 64th note — the quantization resolution for dot spawning.
+    // At 86 BPM a 64th note is ~44 ms — effectively imperceptible as a delay,
+    // so spawns feel immediate while still locking to the beat grid.
+    var sixtyFourthNote: Double { beat / 16 }
 
     // How long a dot stays on screen before triggering game over (one full bar).
     // Shortens naturally as BPM rises, so difficulty increases gradually.
@@ -163,18 +163,18 @@ class GameScene: SKScene {
     // Total taps this game — drives tempo progression and fills.
     var tapCount = 0
 
-    // Current position in the 16-step bar (0–15).
-    // Advances by however many 16th-note steps elapsed since the last spawn.
+    // Current position in the 64-step bar (0–63).
+    // Advances by however many 64th-note steps elapsed since the last spawn.
     // The sound assigned to each new dot is determined by this value:
-    //   0, 8     → kick (beats 1 and 3)
-    //   4, 12    → snare (beats 2 and 4)
-    //   6        → syncopated kick ("and of 2")
-    //   10, 14   → open hi-hat ("and of 3" and "and of 4")
-    //   all others → closed hi-hat (16th-note fill)
+    //   0, 32       → kick (beats 1 and 3 — beat 1 is always a kick)
+    //   16, 48      → snare (beats 2 and 4)
+    //   12, 28      → syncopated kick ("a" of beats 1 and 2)
+    //   24, 56      → open hi-hat ("and" of beats 2 and 4)
+    //   all others  → closed hi-hat
     var gridStep: Int = 0
 
     // Wall-clock time at which the last dot was spawned.
-    // Used to compute how many 16th-note steps have elapsed since then.
+    // Used to compute how many 64th-note steps have elapsed since then.
     var lastSpawnTime: TimeInterval = 0
 
     override init(size: CGSize) {
@@ -229,7 +229,7 @@ class GameScene: SKScene {
         spawnDot()
     }
 
-    // Called after every tap. Calculates the next 8th-note boundary from now
+    // Called after every tap. Calculates the next 64th-note boundary from now
     // and schedules the next dot spawn at exactly that moment.
     //
     // Because every spawn is quantized to the global beat grid, the sounds
@@ -240,9 +240,9 @@ class GameScene: SKScene {
         let elapsed = now - lastSpawnTime
 
         // Floor + 1 ensures we always target a future boundary, never the past.
-        let stepsToNext = Int(elapsed / sixteenthNote) + 1
-        let delay = Double(stepsToNext) * sixteenthNote - elapsed
-        let nextStep = (gridStep + stepsToNext) % 16
+        let stepsToNext = Int(elapsed / sixtyFourthNote) + 1
+        let delay = Double(stepsToNext) * sixtyFourthNote - elapsed
+        let nextStep = (gridStep + stepsToNext) % 64
 
         run(SKAction.sequence([
             SKAction.wait(forDuration: max(0.001, delay)),
@@ -285,33 +285,30 @@ class GameScene: SKScene {
         return CGPoint(x: x, y: y)
     }
 
-    // Maps a 16th-note grid step (0–15) to a drum sound.
+    // Maps a 64th-note grid step (0–63) to a drum sound.
     //
-    //  Bar layout (4/4, 16 steps):
-    //   0        → beat 1           → kick
-    //   4        → beat 2           → snare
-    //   6        → "and of 2"       → syncopated kick
-    //   8        → beat 3           → kick
-    //   10       → "and of 3"       → open hi-hat
-    //   12       → beat 4           → snare
-    //   14       → "and of 4"       → open hi-hat (groove pocket)
-    //   1,2,3,5,7,9,11,13,15        → closed hi-hat (16th-note fill)
+    //  Bar layout (4/4, 64 steps):
+    //   0, 32    → beats 1, 3       → kick (beat 1 is always a kick)
+    //   16, 48   → beats 2, 4       → snare
+    //   12, 28   → "a" of beats 1,2 → syncopated kick
+    //   24, 56   → "and" of 2, 4    → open hi-hat (groove pocket)
+    //   all others                  → closed hi-hat
     func playGridSound(forStep step: Int) {
-        switch step % 16 {
-        case 0, 8:
+        switch step % 64 {
+        case 0, 32:
             playKickSound()
-        case 4, 12:
+        case 16, 48:
             playClapSound()
-        case 6:
-            playKickSound()     // syncopated kick — "and of 2"
-        case 10, 14:
+        case 12, 28:
+            playKickSound()     // syncopated kick
+        case 24, 56:
             playOpenHat()
         default:
             playClosedHat()
         }
     }
 
-    // Bumps BPM by 5% — dotLifetime and sixtyFourthNote shorten automatically
+    // Bumps BPM by 5% — dotLifetime and sixtyFourthNote shorten automatically,
     // since they derive from beat, so difficulty increases without any extra logic.
     func increaseTempo() {
         currentBPM *= 1.05
