@@ -94,7 +94,8 @@ let soundSnareGBT_4 = SKAction.playSoundFileNamed("GBsnare2.wav", waitForComplet
 
 class GameScene: SKScene {
 
-    let scoreLabel = SKLabelNode(fontNamed: "Pusab")
+    let scoreLabel   = SKLabelNode(fontNamed: "Pusab")
+    let totalLabel   = SKLabelNode(fontNamed: "Pusab")  // taps this game; updates live
     var gameArea = CGRect()
 
     // Live BPM — starts at 86, increases 5% every 16 bars.
@@ -160,14 +161,13 @@ class GameScene: SKScene {
         highScoreLabel.zPosition = 1
         addChild(highScoreLabel)
 
-        let historicalLabel = SKLabelNode(fontNamed: "Pusab")
-        historicalLabel.text = "Total \(historicalScoreNumber)"
-        historicalLabel.fontSize = 15
-        historicalLabel.fontColor = SKColor.lightGray
-        historicalLabel.horizontalAlignmentMode = .right
-        historicalLabel.position = CGPoint(x: self.size.width * 0.95, y: self.size.height * 0.95)
-        historicalLabel.zPosition = 1
-        addChild(historicalLabel)
+        totalLabel.text = "Total 0"
+        totalLabel.fontSize = 15
+        totalLabel.fontColor = SKColor.lightGray
+        totalLabel.horizontalAlignmentMode = .right
+        totalLabel.position = CGPoint(x: self.size.width * 0.95, y: self.size.height * 0.95)
+        totalLabel.zPosition = 1
+        addChild(totalLabel)
 
         // Intro kick on beat 1 establishes the tempo, then the pattern kicks in
         playKickSound()
@@ -456,6 +456,7 @@ class GameScene: SKScene {
                 scoreNumber += 1
                 gameScore += 1
                 scoreLabel.text = "Score \(gameScore)"
+                totalLabel.text  = "Total \(gameScore)"
 
             } else if nameOfTappedNode == "ClapDot" {
                 tappedNode.name = ""
@@ -469,6 +470,7 @@ class GameScene: SKScene {
                 scoreNumber2 += 1
                 gameScore += 1
                 scoreLabel.text = "Score \(gameScore)"
+                totalLabel.text  = "Total \(gameScore)"
             }
         }
     }
