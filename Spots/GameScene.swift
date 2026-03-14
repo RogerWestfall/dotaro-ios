@@ -220,21 +220,20 @@ class GameScene: SKScene {
         totalLabel.zPosition = 1
         addChild(totalLabel)
 
-        // Intro kick establishes the tempo; hi-hat + first dots launch one beat later.
+        // Intro kick establishes the tempo; hi-hat + first dot launch one beat later.
         playKickSound()
         run(SKAction.sequence([
             SKAction.wait(forDuration: beat),
             SKAction.run {
                 self.startRhythm()
-                self.spawnBassDot()
-                self.spawnClapDot()
+                self.spawnDot()
             }
         ]))
     }
 
     // Starts (or re-syncs) the hi-hat loop at the current BPM.
     //
-    // Bass and clap dots are now player-driven: tapping a dot immediately
+    // Dots are player-driven: tapping the single active dot immediately
     // spawns the next one, so the player chooses their own subdivision
     // (quarter notes, eighth notes, etc.) and their taps ARE the beat.
     //
@@ -261,13 +260,12 @@ class GameScene: SKScene {
         startRhythm(delay: beat)
     }
 
-    // Bass dot — SKShapeNode circle in the active kit's palette.
-    // Larger (radius 46, no outline) = weighty kick character.
-    // Pops in with a brief scale pulse so the player notices it immediately,
-    // then gradually shrinks to zero over dotLifetime.
-    // Tap fires the kick sound and immediately spawns the next dot.
-    // Miss (dot shrinks to zero) → game over.
-    func spawnBassDot() {
+    // One dot at a time — picks a random colour from the active kit's palette,
+    // pops in with a brief scale pulse, then shrinks to zero over dotLifetime.
+    // Tapping it fires either a kick or snare sound (alternating by tapCount)
+    // and immediately spawns the next dot so the player keeps their groove.
+    // Missing (dot reaches zero) → game over.
+    func spawnDot() {
         let palette = currentKitPalette()
         let dot = SKShapeNode(circleOfRadius: 46)
         dot.fillColor   = palette[Int.random(in: 0..<palette.count)]
@@ -279,31 +277,6 @@ class GameScene: SKScene {
 
         dot.run(SKAction.sequence([
             SKAction.scale(to: 1.18, duration: 0.10), // attention pop
-            SKAction.scale(to: 1.0,  duration: 0.06), // settle
-            SKAction.scale(to: 0,    duration: dotLifetime), // countdown
-            SKAction.run(runnGameOver)
-        ]))
-    }
-
-    // Clap dot — slightly smaller (radius 36) with a white ring.
-    // The size + stroke combo distinguishes it from the bass dot at a glance,
-    // even though both draw from the same kit palette.
-    // Same pop-in animation; smaller pulse (1.14×) matches its snappier character.
-    // Tap fires the snare sound and immediately spawns the next dot.
-    // Miss → game over.
-    func spawnClapDot() {
-        let palette = currentKitPalette()
-        let clapDot = SKShapeNode(circleOfRadius: 36)
-        clapDot.fillColor   = palette[Int.random(in: 0..<palette.count)]
-        clapDot.strokeColor = SKColor(white: 0.97, alpha: 0.85)
-        clapDot.lineWidth   = 4
-        clapDot.zPosition   = 3
-        clapDot.name        = "ClapDot"
-        clapDot.position    = randomPosition(for: clapDot)
-        addChild(clapDot)
-
-        clapDot.run(SKAction.sequence([
-            SKAction.scale(to: 1.14, duration: 0.10), // attention pop
             SKAction.scale(to: 1.0,  duration: 0.06), // settle
             SKAction.scale(to: 0,    duration: dotLifetime), // countdown
             SKAction.run(runnGameOver)
@@ -479,34 +452,23 @@ class GameScene: SKScene {
                     SKAction.removeFromParent()
                 ]))
 
-                // Tap IS the kick — sound plays now, driven entirely by the player.
-                // Spawn the next bass dot immediately so they can keep their groove.
-                scoreNumber += 1
                 gameScore += 1
                 tapCount += 1
                 scoreLabel.text = "Score \(gameScore)"
                 totalLabel.text  = "Total \(gameScore)"
-                playKickSound()
-                spawnBassDot()
-                checkTempoAndFills()
 
-            } else if nameOfTappedNode == "ClapDot" {
-                tappedNode.name = ""
-                tappedNode.removeAllActions()
-                tappedNode.run(SKAction.sequence([
-                    SKAction.fadeOut(withDuration: 0.1),
-                    SKAction.removeFromParent()
-                ]))
+                // Odd taps → kick; even taps → snare.
+                // The player drives both instruments with a single dot,
+                // creating a natural kick-snare pattern through their rhythm.
+                if tapCount % 2 == 1 {
+                    scoreNumber += 1
+                    playKickSound()
+                } else {
+                    scoreNumber2 += 1
+                    playClapSound()
+                }
 
-                // Tap IS the snare — sound plays now, driven entirely by the player.
-                // Spawn the next clap dot immediately so they can keep their groove.
-                scoreNumber2 += 1
-                gameScore += 1
-                tapCount += 1
-                scoreLabel.text = "Score \(gameScore)"
-                totalLabel.text  = "Total \(gameScore)"
-                playClapSound()
-                spawnClapDot()
+                spawnDot()
                 checkTempoAndFills()
             }
         }
