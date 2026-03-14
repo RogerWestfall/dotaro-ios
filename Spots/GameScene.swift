@@ -22,6 +22,56 @@ var gameScore = 0
 // Starting BPM — increases by 5% every 32 taps (see checkTempoAndFills)
 let startingBPM: Double = 86.0
 
+// ── Kit colour palettes ────────────────────────────────────────────────────────
+// Each kit has a 4-colour palette that matches its sonic character.
+// Module-level so DrumPadScene can call these too (same target → same module).
+
+/// Returns the 4-colour palette for the currently active drum kit.
+/// GameScene uses it for spawn dot colours; DrumPadScene uses it for pad colours.
+func currentKitPalette() -> [SKColor] {
+    switch userAudioDefault {
+    case 1: // Yamaha DD-8 — 80s neon synthwave
+        return [
+            SKColor(red: 0.95, green: 0.38, blue: 0.68, alpha: 1), // rose pink
+            SKColor(red: 0.0,  green: 0.72, blue: 0.83, alpha: 1), // cyan
+            SKColor(red: 0.55, green: 0.82, blue: 0.22, alpha: 1), // lime green
+            SKColor(red: 0.58, green: 0.0,  blue: 0.58, alpha: 1), // purple
+        ]
+    case 2: // Game Boy Drums — retro pixel cool
+        return [
+            SKColor(red: 0.0,  green: 0.58, blue: 0.40, alpha: 1), // viridian
+            SKColor(red: 0.0,  green: 0.28, blue: 0.67, alpha: 1), // cobalt blue
+            SKColor(red: 0.15, green: 0.45, blue: 0.75, alpha: 1), // steel blue
+            SKColor(red: 0.0,  green: 0.72, blue: 0.83, alpha: 1), // cyan
+        ]
+    case 3: // Game Boy Tones — melodic, ethereal
+        return [
+            SKColor(red: 0.58, green: 0.0,  blue: 0.58, alpha: 1), // purple
+            SKColor(red: 0.15, green: 0.45, blue: 0.75, alpha: 1), // steel blue
+            SKColor(red: 0.95, green: 0.38, blue: 0.68, alpha: 1), // rose pink
+            SKColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 1), // near black
+        ]
+    default: // Roland TR-808 — analog warmth
+        return [
+            SKColor(red: 0.89, green: 0.15, blue: 0.07, alpha: 1), // cadmium red
+            SKColor(red: 0.95, green: 0.44, blue: 0.0,  alpha: 1), // cadmium orange
+            SKColor(red: 0.70, green: 0.10, blue: 0.20, alpha: 1), // crimson
+            SKColor(red: 1.0,  green: 0.80, blue: 0.0,  alpha: 1), // cadmium yellow
+        ]
+    }
+}
+
+/// Returns the primary (first) colour for a given kit index.
+/// Used by DrumPadScene to colour each kit's selector dot in its own hue.
+func kitPrimaryColor(for kit: Int) -> SKColor {
+    switch kit {
+    case 1:  return SKColor(red: 0.95, green: 0.38, blue: 0.68, alpha: 1) // rose pink
+    case 2:  return SKColor(red: 0.0,  green: 0.28, blue: 0.67, alpha: 1) // cobalt blue
+    case 3:  return SKColor(red: 0.58, green: 0.0,  blue: 0.58, alpha: 1) // purple
+    default: return SKColor(red: 0.89, green: 0.15, blue: 0.07, alpha: 1) // cadmium red
+    }
+}
+
 // 808 Audio
 let soundKick808_1 = SKAction.playSoundFileNamed("kick4.wav", waitForCompletion: false)
 let soundKick808_2 = SKAction.playSoundFileNamed("kick2.wav", waitForCompletion: false)
@@ -209,15 +259,18 @@ class GameScene: SKScene {
         startRhythm(delay: beat)
     }
 
-    // Bass dot — tap it to sound the kick and immediately get the next one.
-    // No sound on spawn: the player's tap timing IS the kick pattern.
+    // Bass dot — SKShapeNode circle in the active kit's palette.
+    // Larger (radius 46, no outline) = weighty kick character.
+    // Tap fires the kick sound and immediately spawns the next dot.
     // Miss (dot shrinks to zero) → game over.
     func spawnBassDot() {
-        let dot = SKSpriteNode(imageNamed: "dot\(Int.random(in: 1...4))")
-        dot.zPosition = 2
-        dot.setScale(0.25)
-        dot.name = "dotObject"
-        dot.position = randomPosition(for: dot)
+        let palette = currentKitPalette()
+        let dot = SKShapeNode(circleOfRadius: 46)
+        dot.fillColor   = palette[Int.random(in: 0..<palette.count)]
+        dot.strokeColor = .clear
+        dot.zPosition   = 2
+        dot.name        = "dotObject"
+        dot.position    = randomPosition(for: dot)
         addChild(dot)
 
         dot.run(SKAction.sequence([
@@ -226,15 +279,20 @@ class GameScene: SKScene {
         ]))
     }
 
-    // Clap dot — tap it to sound the snare and immediately get the next one.
-    // No sound on spawn: the player's tap timing IS the snare pattern.
+    // Clap dot — slightly smaller (radius 36) with a white ring.
+    // The size + stroke combo distinguishes it from the bass dot at a glance,
+    // even though both draw from the same kit palette.
+    // Tap fires the snare sound and immediately spawns the next dot.
     // Miss → game over.
     func spawnClapDot() {
-        let clapDot = SKSpriteNode(imageNamed: "dot\(Int.random(in: 5...8))")
-        clapDot.zPosition = 3
-        clapDot.setScale(0.25)
-        clapDot.name = "ClapDot"
-        clapDot.position = randomPosition(for: clapDot)
+        let palette = currentKitPalette()
+        let clapDot = SKShapeNode(circleOfRadius: 36)
+        clapDot.fillColor   = palette[Int.random(in: 0..<palette.count)]
+        clapDot.strokeColor = SKColor(white: 0.97, alpha: 0.85)
+        clapDot.lineWidth   = 4
+        clapDot.zPosition   = 3
+        clapDot.name        = "ClapDot"
+        clapDot.position    = randomPosition(for: clapDot)
         addChild(clapDot)
 
         clapDot.run(SKAction.sequence([
@@ -243,9 +301,13 @@ class GameScene: SKScene {
         ]))
     }
 
-    func randomPosition(for node: SKSpriteNode) -> CGPoint {
-        let x = CGFloat.random(in: (gameArea.minX + node.size.width)...(gameArea.maxX - node.size.width))
-        let y = CGFloat.random(in: (gameArea.minY + node.size.height)...(gameArea.maxY - node.size.height))
+    // Works for both SKSpriteNode and SKShapeNode — uses frame.size for margins
+    // so the dot is always fully on-screen regardless of node type.
+    func randomPosition(for node: SKNode) -> CGPoint {
+        let w = node.frame.size.width
+        let h = node.frame.size.height
+        let x = CGFloat.random(in: (gameArea.minX + w)...(gameArea.maxX - w))
+        let y = CGFloat.random(in: (gameArea.minY + h)...(gameArea.maxY - h))
         return CGPoint(x: x, y: y)
     }
 
