@@ -138,11 +138,11 @@ class GameScene: SKScene {
         hhStep = 0
         currentBPM = startingBPM
 
-        backgroundColor = SKColor.white
+        backgroundColor = SKColor(white: 0.97, alpha: 1.0)
 
         scoreLabel.fontSize = 15
         scoreLabel.text = "Score 0"
-        scoreLabel.fontColor = SKColor.lightGray
+        scoreLabel.fontColor = SKColor(white: 0.12, alpha: 1.0)
         scoreLabel.horizontalAlignmentMode = .center
         scoreLabel.zPosition = 1
         scoreLabel.position = CGPoint(x: self.size.width * 0.5, y: self.size.height * 0.95)
@@ -154,7 +154,7 @@ class GameScene: SKScene {
         let highScoreLabel = SKLabelNode(fontNamed: "Pusab")
         highScoreLabel.text = "High \(highScoreNumber)"
         highScoreLabel.fontSize = 15
-        highScoreLabel.fontColor = SKColor.lightGray
+        highScoreLabel.fontColor = SKColor(white: 0.50, alpha: 1.0)
         highScoreLabel.horizontalAlignmentMode = .left
         highScoreLabel.position = CGPoint(x: self.size.width * 0.05, y: self.size.height * 0.95)
         highScoreLabel.zPosition = 1
@@ -162,7 +162,7 @@ class GameScene: SKScene {
 
         totalLabel.text = "Total 0"
         totalLabel.fontSize = 15
-        totalLabel.fontColor = SKColor.lightGray
+        totalLabel.fontColor = SKColor(white: 0.50, alpha: 1.0)
         totalLabel.horizontalAlignmentMode = .right
         totalLabel.position = CGPoint(x: self.size.width * 0.95, y: self.size.height * 0.95)
         totalLabel.zPosition = 1
@@ -388,7 +388,7 @@ class GameScene: SKScene {
     func runnGameOver() {
         let sceneToMoveTo = GameOverScene(size: self.size)
         sceneToMoveTo.scaleMode = self.scaleMode
-        let sceneTransition = SKTransition.doorsOpenVertical(withDuration: 0.2)
+        let sceneTransition = SKTransition.fade(withDuration: 0.3)
         self.view!.presentScene(sceneToMoveTo, transition: sceneTransition)
     }
 
